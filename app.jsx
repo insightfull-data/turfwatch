@@ -20,6 +20,9 @@ const C = {
 // ─── Default client config (overwritten by setup) ───
 const DEFAULT_CLIENT = { name: "", biz: "", address: "", lat: 0, lng: 0, radius: 1500, type: "barbershop", searchQuery: "" };
 
+// ─── API Base URL ───
+const API_BASE = "https://turfwatch-production.up.railway.app";
+
 const BUSINESS_TYPES = [
   { value: "barbershop", label: "Barbershop" },
   { value: "hair_salon", label: "Hair Salon" },
@@ -171,65 +174,9 @@ function SetupScreen({ onComplete, apiKey }) {
   );
 }
 
-// ─── Mock Data ───
-
-const MOCK_COMPETITORS = [
-  { id: "fc1", name: "Fresh Cutz Barber", addr: "1052 Kingston Rd", dist: 0.3, lat: 43.6851, lng: -79.2598, rating: 4.3, reviews: 47, opened: "Mar 2025", price: "$$", services: "Fades, lineups, modern styles", threat: "high", isCompetitor: true, aiReason: "Direct competitor — identical target demographic, modern fades focus, 300m away" },
-  { id: "kc2", name: "Kingston Clip Joint", addr: "920 Kingston Rd", dist: 0.5, lat: 43.6818, lng: -79.2570, rating: 4.1, reviews: 23, opened: "Nov 2024", price: "$", services: "Traditional cuts, shaves", threat: "medium", isCompetitor: true, aiReason: "Overlapping services — traditional cuts at lower price point could attract budget-conscious clients" },
-  { id: "bb3", name: "Birch & Blade", addr: "1120 Kingston Rd", dist: 0.7, lat: 43.6862, lng: -79.2710, rating: 4.7, reviews: 89, opened: "Jan 2025", price: "$$$", services: "Premium grooming, beard sculpting, hot towel shaves", threat: "high", isCompetitor: true, aiReason: "Premium positioning pulling high-value clients — 3 clients/week asking about their beard services" },
-  { id: "qe4", name: "Queen East Barbers", addr: "850 Kingston Rd", dist: 1.1, lat: 43.6795, lng: -79.2530, rating: 3.9, reviews: 156, opened: "2019", price: "$", services: "Walk-ins, classic cuts", threat: "low", isCompetitor: true, aiReason: "Established but declining ratings — walk-in model less relevant to appointment-based clientele" },
-  { id: "gc5", name: "The Grooming Co.", addr: "1180 Kingston Rd", dist: 1.4, lat: 43.6870, lng: -79.2760, rating: 4.5, reviews: 62, opened: "Sep 2024", price: "$$$", services: "Full service grooming, skincare, facials", threat: "medium", isCompetitor: true, aiReason: "Partial overlap — grooming/skincare pulls clients seeking premium, but facial focus differentiates" },
-  { id: "hs6", name: "Hair Story Salon", addr: "980 Kingston Rd", dist: 0.4, lat: 43.6828, lng: -79.2585, rating: 4.4, reviews: 210, opened: "2017", price: "$$", services: "Women's cuts, color, blowouts", threat: null, isCompetitor: false, aiReason: "Not a competitor — women's salon with no overlapping services or male clientele" },
-  { id: "ns7", name: "Nails & Spa Kingston", addr: "1040 Kingston Rd", dist: 0.3, lat: 43.6845, lng: -79.2610, rating: 4.2, reviews: 95, opened: "2020", price: "$$", services: "Manicures, pedicures, waxing", threat: null, isCompetitor: false, aiReason: "Not a competitor — entirely different service category, no client overlap" },
-];
-
-const MOCK_OWN_REVIEWS = [
-  { author: "Mike T.", rating: 5, date: "Mar 15, 2026", text: "Best barbershop on Kingston Road. Been coming here for 3 years and the quality never drops. Ask for Danny — he's the GOAT.", sentiment: "positive", themes: ["consistency", "specific barber loyalty"] },
-  { author: "Jason L.", rating: 4, date: "Mar 12, 2026", text: "Good haircut as always. Only reason it's not 5 stars is the wait time on Saturdays can be brutal. Maybe open a bit earlier?", sentiment: "mixed", themes: ["wait times", "weekend hours"] },
-  { author: "Chris R.", rating: 5, date: "Mar 8, 2026", text: "Just moved to the neighborhood from downtown. Tried this place on a whim and I'm hooked. Friendly, quick, and priced right.", sentiment: "positive", themes: ["new resident", "pricing", "friendly"] },
-  { author: "David K.", rating: 3, date: "Mar 3, 2026", text: "Decent cut but I wish they offered beard grooming services. Had to go to Birch & Blade down the road for that. Would be great if they added it.", sentiment: "negative", themes: ["service gap", "competitor mention", "beard services"] },
-  { author: "Alex M.", rating: 5, date: "Feb 28, 2026", text: "This is a real neighborhood spot. None of that overpriced hipster stuff. Just a great haircut from people who know what they're doing.", sentiment: "positive", themes: ["authenticity", "value", "skill"] },
-  { author: "Tom W.", rating: 4, date: "Feb 20, 2026", text: "Solid as always. Parking can be tough on Kingston though.", sentiment: "mixed", themes: ["parking", "consistency"] },
-];
-
-const MOCK_COMPETITOR_REVIEWS = {
-  fc1: [
-    { author: "Ryan B.", rating: 5, date: "Mar 16, 2026", text: "Sick fades. These guys know what's up. Modern vibe, great music, quick service.", sentiment: "positive", themes: ["fades", "atmosphere", "speed"] },
-    { author: "Jake P.", rating: 3, date: "Mar 10, 2026", text: "Style is on point but they're always pushing add-ons. Felt more like a sales pitch than a haircut.", sentiment: "negative", themes: ["upselling", "pressure"] },
-    { author: "Marcus D.", rating: 4, date: "Mar 5, 2026", text: "Just opened and already packed. Good sign. Lineups are their specialty.", sentiment: "positive", themes: ["popular", "lineups"] },
-  ],
-  bb3: [
-    { author: "James H.", rating: 5, date: "Mar 14, 2026", text: "The hot towel shave experience here is unreal. Worth every penny. This is what barbering should be.", sentiment: "positive", themes: ["hot towel shave", "premium experience", "value for money"] },
-    { author: "Steve C.", rating: 5, date: "Mar 9, 2026", text: "Beard sculpting is an art form here. Switched from my old barber specifically for this service.", sentiment: "positive", themes: ["beard sculpting", "client switching", "specialization"] },
-    { author: "Paul N.", rating: 4, date: "Mar 1, 2026", text: "Excellent grooming but the pricing is steep. $65 for a cut and beard is a lot for Kingston Rd.", sentiment: "mixed", themes: ["pricing concern", "quality acknowledged"] },
-  ],
-  kc2: [
-    { author: "Greg F.", rating: 4, date: "Mar 11, 2026", text: "No frills, good price, solid cut. Exactly what I need.", sentiment: "positive", themes: ["value", "simplicity"] },
-    { author: "Ed W.", rating: 3, date: "Feb 25, 2026", text: "Basic but fine. Nothing special. Would be nice if they updated the interior a bit.", sentiment: "mixed", themes: ["dated interior", "basic service"] },
-  ],
-  gc5: [
-    { author: "Daniel R.", rating: 5, date: "Mar 13, 2026", text: "The facial + haircut combo is genius. Left feeling like a new person. My wife noticed immediately.", sentiment: "positive", themes: ["facial combo", "transformation", "partner approval"] },
-    { author: "Kevin S.", rating: 4, date: "Mar 6, 2026", text: "Great concept but took almost 2 hours for the full service. Need to manage time better.", sentiment: "mixed", themes: ["long wait", "time management"] },
-  ],
-  qe4: [
-    { author: "Bill M.", rating: 2, date: "Mar 7, 2026", text: "Used to be my go-to but quality has really slipped. Last two cuts were uneven. Time to find somewhere new.", sentiment: "negative", themes: ["declining quality", "client loss", "consistency issues"] },
-    { author: "Rob A.", rating: 4, date: "Feb 15, 2026", text: "Walk-in friendly which is nice. But the vibe is a bit tired.", sentiment: "mixed", themes: ["walk-in friendly", "dated"] },
-  ],
-};
-
-const MOCK_RATING_TRENDS = [
-  { month: "Oct", you: 4.5, fc: 0, bb: 4.6, kc: 0, gc: 4.4, qe: 4.2 },
-  { month: "Nov", you: 4.5, fc: 0, bb: 4.6, kc: 3.8, gc: 4.4, qe: 4.1 },
-  { month: "Dec", you: 4.4, fc: 0, bb: 4.7, kc: 4.0, gc: 4.5, qe: 4.0 },
-  { month: "Jan", you: 4.5, fc: 0, bb: 4.7, kc: 4.0, gc: 4.5, qe: 4.0 },
-  { month: "Feb", you: 4.4, fc: 0, bb: 4.7, kc: 4.1, gc: 4.5, qe: 3.9 },
-  { month: "Mar", you: 4.5, fc: 4.3, bb: 4.7, kc: 4.1, gc: 4.5, qe: 3.9 },
-];
+// ─── No mock data — everything pulls dynamically ───
 
 // ─── API Layer — calls TurfWatch proxy (avoids CORS) ───
-
-// ═══ CHANGE THIS to your Railway URL after deploying ═══
-const API_BASE = "https://turfwatch-production.up.railway.app";
 
 async function apiValidate(apiKey) {
   const res = await fetch(`${API_BASE}/api/validate`, {
@@ -324,48 +271,6 @@ function Stars({ rating, size = 12 }) {
       ))}
       <span style={{ fontSize: size - 2, fontWeight: 700, color: C.text, marginLeft: 4, fontFamily: "'IBM Plex Mono', monospace" }}>{rating.toFixed(1)}</span>
     </span>
-  );
-}
-
-function RatingChart({ data }) {
-  const keys = [
-    { k: "you", label: "You", color: C.goldBr },
-    { k: "bb", label: "Birch&Blade", color: C.red },
-    { k: "fc", label: "Fresh Cutz", color: C.orange },
-    { k: "gc", label: "Grooming Co", color: C.blue },
-    { k: "qe", label: "Queen East", color: C.green },
-    { k: "kc", label: "Kingston Clip", color: C.purple },
-  ];
-  const minR = 3.5, maxR = 5.0, range = maxR - minR;
-  const h = 140, w = 100;
-
-  return (
-    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }}>
-      <div style={{ fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: 2, marginBottom: 12, fontWeight: 700 }}>Rating Trends · 6 Month</div>
-      <svg viewBox={`0 0 ${data.length * 60} ${h + 20}`} style={{ width: "100%", height: 160 }}>
-        {/* Grid lines */}
-        {[3.5, 4.0, 4.5, 5.0].map((v, i) => {
-          const y = h - ((v - minR) / range) * h;
-          return <g key={i}><line x1="0" y1={y} x2={data.length * 60} y2={y} stroke={C.border} strokeWidth="0.5" /><text x="-2" y={y + 3} fill={C.dim} fontSize="8" textAnchor="end">{v}</text></g>;
-        })}
-        {/* Lines */}
-        {keys.map(({ k, color }) => {
-          const pts = data.map((d, i) => d[k] > 0 ? `${i * 60 + 30},${h - ((d[k] - minR) / range) * h}` : null).filter(Boolean);
-          return pts.length > 1 ? <polyline key={k} points={pts.join(" ")} fill="none" stroke={color} strokeWidth="2" opacity="0.85" strokeLinejoin="round" /> : null;
-        })}
-        {/* Dots */}
-        {keys.map(({ k, color }) => data.map((d, i) => d[k] > 0 ? <circle key={`${k}${i}`} cx={i * 60 + 30} cy={h - ((d[k] - minR) / range) * h} r="3" fill={color} /> : null))}
-        {/* Month labels */}
-        {data.map((d, i) => <text key={i} x={i * 60 + 30} y={h + 16} fill={C.muted} fontSize="9" textAnchor="middle">{d.month}</text>)}
-      </svg>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10 }}>
-        {keys.map(({ label, color }) => (
-          <span key={label} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: C.muted }}>
-            <span style={{ width: 8, height: 3, borderRadius: 1, background: color, display: "inline-block" }} />{label}
-          </span>
-        ))}
-      </div>
-    </div>
   );
 }
 
@@ -487,9 +392,9 @@ function TurfWatchDashboard({ client, setClient, apiKeyInit, setApiKeyRoot }) {
   const [apiKey, setApiKey] = useState(apiKeyInit || "");
   const saveApiKey = (key) => { setApiKey(key); try { localStorage.setItem("turfwatch_apikey", key); if (setApiKeyRoot) setApiKeyRoot(key); } catch {} };
   const [liveMode, setLiveMode] = useState(false);
-  const [competitors, setCompetitors] = useState(MOCK_COMPETITORS);
-  const [ownReviews, setOwnReviews] = useState(MOCK_OWN_REVIEWS);
-  const [competitorReviews, setCompetitorReviews] = useState(MOCK_COMPETITOR_REVIEWS);
+  const [competitors, setCompetitors] = useState([]);
+  const [ownReviews, setOwnReviews] = useState([]);
+  const [competitorReviews, setCompetitorReviews] = useState({});
   const [ownAnalysis, setOwnAnalysis] = useState(null);
   const [compAnalyses, setCompAnalyses] = useState({});
   const [threatScore, setThreatScore] = useState(72);
@@ -507,23 +412,12 @@ function TurfWatchDashboard({ client, setClient, apiKeyInit, setApiKeyRoot }) {
   const [connectionStatus, setConnectionStatus] = useState(null); // null | "connecting" | "connected" | "error"
 
   const activeCompetitors = competitors.filter(c => c.isCompetitor);
-  const isLiveData = competitors !== MOCK_COMPETITORS && competitors.length > 0 && competitors[0]?.id?.startsWith("live_");
+  const isLiveData = competitors.length > 0;
   
   // Computed: your shop's average rating from reviews
   const shopAvgRating = ownReviews.length > 0
     ? +(ownReviews.reduce((sum, r) => sum + r.rating, 0) / ownReviews.length).toFixed(1)
-    : 4.5;
-
-  // Computed: dynamic rating trends from live competitor data
-  const ratingTrendsData = (() => {
-    if (!isLiveData) return MOCK_RATING_TRENDS;
-    // Build a single "current" data point from live ratings
-    const current = { month: new Date().toLocaleString("en-US", { month: "short" }), you: shopAvgRating };
-    activeCompetitors.forEach(c => {
-      if (c.rating > 0) current[c.id] = c.rating;
-    });
-    return [current];
-  })();
+    : 0;
 
   // ─── Scan for competitors ───
   const handleScan = useCallback(async () => {
@@ -550,16 +444,14 @@ function TurfWatchDashboard({ client, setClient, apiKeyInit, setApiKeyRoot }) {
         setScanStatus(`Classified ${merged.filter(m => m.isCompetitor).length} competitors from ${businesses.length} businesses`);
       } catch (e) {
         console.error(e);
-        setScanStatus("API error — falling back to demo data");
-        setCompetitors(MOCK_COMPETITORS);
-        discoveredCompetitors = MOCK_COMPETITORS;
+        setScanStatus("API error — please check your connection and try again");
+        discoveredCompetitors = [];
       }
     } else {
-      setScanStatus("No API key — using demo data. Add your Outscraper key in Settings.");
-      await new Promise(r => setTimeout(r, 1500));
-      setCompetitors(MOCK_COMPETITORS);
-      discoveredCompetitors = MOCK_COMPETITORS;
-      setScanStatus(`Found ${MOCK_COMPETITORS.filter(c => c.isCompetitor).length} competitors (demo mode)`);
+      setScanStatus("No API key — add your Outscraper key in Settings to scan for competitors.");
+      await new Promise(r => setTimeout(r, 500));
+      discoveredCompetitors = [];
+      setScanStatus("No API key configured. Go to Settings → paste your Outscraper key → Connect.");
     }
     setLastScan(new Date().toLocaleString());
     setIsScanning(false);
@@ -629,7 +521,7 @@ function TurfWatchDashboard({ client, setClient, apiKeyInit, setApiKeyRoot }) {
         setScanStatus("Some review fetches failed — analyzing available data.");
       }
     } else {
-      setScanStatus("No API key — analyzing demo reviews. Add key in Settings for live data.");
+      setScanStatus("No API key — add your Outscraper key in Settings to fetch reviews.");
     }
 
     // Step 3: AI analysis on whatever reviews we have (live or mock)
@@ -648,7 +540,7 @@ function TurfWatchDashboard({ client, setClient, apiKeyInit, setApiKeyRoot }) {
       }
     }
 
-    setScanStatus(apiKey ? `Live review analysis complete.` : `Demo review analysis complete.`);
+    setScanStatus(apiKey ? `Review analysis complete.` : `No API key configured.`);
     setLastScan(new Date().toLocaleString());
     setIsAnalyzingReviews(false);
   }, [apiKey, ownReviews, competitors, competitorReviews]);
@@ -757,13 +649,13 @@ function TurfWatchDashboard({ client, setClient, apiKeyInit, setApiKeyRoot }) {
               </div>
             </div>
 
-            {/* Demographics */}
+            {/* Key Stats */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 14 }}>
               {[
-                { l: "Population", v: "18,420", ch: "+6.2%", g: true },
-                { l: "Median Income", v: "$82.5K", ch: "+14.3%", g: true },
-                { l: "Median Age", v: "36.4", ch: "−2.1 yrs", g: true },
-                { l: "Competitors <1km", v: String(activeCompetitors.filter(c => c.dist <= 1).length), ch: `+${activeCompetitors.filter(c => c.dist <= 1 && c.opened?.includes("202")).length} new`, g: false },
+                { l: "Competitors Found", v: String(activeCompetitors.length), ch: isLiveData ? "Live data" : "Not scanned", g: isLiveData },
+                { l: "High Threat", v: String(activeCompetitors.filter(c => c.threat === "high").length), ch: isLiveData ? "Needs attention" : "—", g: false },
+                { l: "Your Rating", v: shopAvgRating > 0 ? shopAvgRating.toFixed(1) : "—", ch: ownReviews.length > 0 ? `${ownReviews.length} reviews` : "Not fetched", g: shopAvgRating >= 4 },
+                { l: "Scan Radius", v: `${((SHOP.radius || 1500) / 1000).toFixed(1)} km`, ch: (SHOP.type || "barbershop").replace("_", " "), g: true },
               ].map((s, i) => (
                 <div key={i} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", animation: `fadeUp 0.3s ease ${i * 40}ms both` }}>
                   <div style={{ fontSize: 7, color: C.dim, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4 }}>{s.l}</div>
@@ -785,7 +677,7 @@ function TurfWatchDashboard({ client, setClient, apiKeyInit, setApiKeyRoot }) {
                       <div style={{ fontSize: 9, color: C.muted }}>{ownReviews.length} reviews analyzed</div>
                     </div>
                     <div style={{ textAlign: "right" }}>
-                      <Stars rating={shopAvgRating} size={11} />
+                      {shopAvgRating > 0 ? <Stars rating={shopAvgRating} size={11} /> : <span style={{ fontSize: 10, color: C.dim }}>No reviews yet</span>}
                     </div>
                   </div>
                   {/* Competitor ratings */}
@@ -804,34 +696,28 @@ function TurfWatchDashboard({ client, setClient, apiKeyInit, setApiKeyRoot }) {
                       </div>
                     );
                   })}
-                  {shopAvgRating >= Math.max(...activeCompetitors.map(c => c.rating || 0)) && (
+                  {shopAvgRating > 0 && shopAvgRating >= Math.max(...activeCompetitors.map(c => c.rating || 0), 0) && (
                     <div style={{ marginTop: 10, padding: "6px 10px", background: C.greenDim, borderRadius: 6, fontSize: 10, color: C.green }}>
-                      ✓ You have the highest rating on the corridor
+                      ✓ You have the highest rating in the area
                     </div>
                   )}
-                  {shopAvgRating < Math.max(...activeCompetitors.map(c => c.rating || 0)) && (
+                  {shopAvgRating > 0 && shopAvgRating < Math.max(...activeCompetitors.map(c => c.rating || 0), 0) && (
                     <div style={{ marginTop: 10, padding: "6px 10px", background: C.orangeDim, borderRadius: 6, fontSize: 10, color: C.orange }}>
-                      ⚠ {activeCompetitors.filter(c => c.rating > shopAvgRating).length} competitor(s) rated higher than you — check Reviews tab for insights
+                      ⚠ {activeCompetitors.filter(c => c.rating > shopAvgRating).length} competitor(s) rated higher — check Reviews tab for insights
                     </div>
                   )}
                 </div>
               ) : (
-                <RatingChart data={MOCK_RATING_TRENDS} />
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, textAlign: "center" }}>
+                  <div style={{ fontSize: 24, marginBottom: 8 }}>📊</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 4 }}>No rating data yet</div>
+                  <div style={{ fontSize: 10, color: C.muted }}>Go to Map tab → Scan Area to discover competitors and their ratings</div>
+                </div>
               )}
             </div>
 
-            {/* Developments */}
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 8 }}>Incoming Developments</div>
-              {DEVELOPMENTS.map((d, i) => (
-                <div key={i} style={{ display: "flex", justifyContent: "space-between", background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", marginBottom: 4, animation: `fadeUp 0.3s ease ${i * 40}ms both` }}>
-                  <div><div style={{ fontSize: 11, fontWeight: 700 }}>{d.name}</div><div style={{ fontSize: 9, color: C.muted }}>{d.dist} · {d.completion}</div></div>
-                  <div style={{ textAlign: "right" }}><div style={{ fontSize: 14, fontWeight: 800, color: C.gold, fontFamily: "'IBM Plex Mono'" }}>{d.units}</div><div style={{ fontSize: 7, color: C.dim, letterSpacing: 1 }}>{d.status}</div></div>
-                </div>
-              ))}
-            </div>
-
-            {/* Strategies */}
+            {/* Strategies — only show when we have live data */}
+            {isLiveData && (
             <div>
               <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 8 }}>Strategic Recommendations</div>
               <div style={{ background: `linear-gradient(135deg,${C.goldDim},${C.card})`, border: `1px solid ${C.gold}20`, borderRadius: 10, padding: 12, marginBottom: 10 }}>
@@ -857,6 +743,7 @@ function TurfWatchDashboard({ client, setClient, apiKeyInit, setApiKeyRoot }) {
                 </div>
               ))}
             </div>
+            )}
           </div>
         )}
 
@@ -1199,11 +1086,7 @@ function ReportCardInline({ report, style: s }) {
   );
 }
 
-const DEVELOPMENTS = [
-  { name: "Kingston & Midland Condos", units: 280, status: "Building", completion: "Q3 2026", dist: "0.4 km" },
-  { name: "Birchcliff Urban Towns", units: 64, status: "Pre-Sale", completion: "Q1 2027", dist: "0.6 km" },
-  { name: "The Cliffside Residences", units: 180, status: "Approved", completion: "2028", dist: "0.8 km" },
-];
+const DEVELOPMENTS = [];
 
 const QUICK_PROMPTS = [
   { icon: "🏪", label: "New shop", starter: "Spotted a new barbershop/salon — " },
