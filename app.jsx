@@ -122,19 +122,14 @@ async function outscraperReviews(apiKey, query, limit = 10) {
 
 async function classifyCompetitors(businesses) {
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await fetch(`${API_BASE}/api/classify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
-        system: `You classify businesses as competitors to a barbershop at 1006 Kingston Rd, Birch Cliff, Toronto. A competitor is any business whose services overlap enough to potentially take male grooming/haircut clients. This includes barbershops, men's salons, grooming lounges, and unisex salons with significant male clientele. It does NOT include women-only salons, nail bars, spas without hair services, etc. Respond ONLY with JSON array, no other text: [{"name":"...","isCompetitor":true/false,"reason":"brief explanation","threat":"high|medium|low"}]`,
-        messages: [{ role: "user", content: JSON.stringify(businesses.map(b => ({ name: b.name, types: b.type || b.subtypes, description: b.description || "" }))) }],
-      }),
+      body: JSON.stringify({ businesses }),
     });
+    if (!res.ok) throw new Error(`Classification failed: ${res.status}`);
     const data = await res.json();
-    const raw = data.content?.map(i => i.text || "").join("") || "[]";
-    return JSON.parse(raw.replace(/```json|```/g, "").trim());
+    return data.classifications || [];
   } catch (e) {
     console.error("Classification failed:", e);
     return businesses.map(b => ({ name: b.name, isCompetitor: true, reason: "Classification unavailable", threat: "medium" }));
@@ -143,21 +138,14 @@ async function classifyCompetitors(businesses) {
 
 async function analyzeReviews(reviews, businessName, isOwn) {
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await fetch(`${API_BASE}/api/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
-        system: isOwn
-          ? `Analyze these Google reviews for a barbershop at 1006 Kingston Rd, Toronto. This is the OWNER's shop. Identify: sentiment trend, recurring themes, service gaps clients mention, competitive threats (other shops mentioned), and specific actionable improvements. Respond ONLY with JSON: {"overallSentiment":"positive|mixed|negative","avgRating":<number>,"themes":[{"theme":"...","count":<n>,"sentiment":"positive|negative|neutral"}],"competitorMentions":["..."],"actionItems":["..."],"summary":"2 sentence summary"}`
-          : `Analyze these Google reviews for "${businessName}", a competitor to a barbershop at 1006 Kingston Rd, Toronto. Identify: what clients love (to learn from), what they hate (opportunities to exploit), pricing sentiment, and any signs of client switching. Respond ONLY with JSON: {"overallSentiment":"positive|mixed|negative","avgRating":<number>,"strengths":["..."],"weaknesses":["..."],"pricingSentiment":"...","switchingSignals":["..."],"exploitableGaps":["..."],"summary":"2 sentence summary"}`,
-        messages: [{ role: "user", content: JSON.stringify(reviews.slice(0, 15)) }],
-      }),
+      body: JSON.stringify({ reviews, businessName, isOwn }),
     });
+    if (!res.ok) throw new Error(`Analysis failed: ${res.status}`);
     const data = await res.json();
-    const raw = data.content?.map(i => i.text || "").join("") || "{}";
-    return JSON.parse(raw.replace(/```json|```/g, "").trim());
+    return data.analysis || null;
   } catch (e) {
     console.error("Review analysis failed:", e);
     return null;
@@ -501,16 +489,14 @@ function TurfWatch() {
     if (!reportText.trim()) return;
     setIsAnalyzingReport(true); setReportResult(null);
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514", max_tokens: 1000,
-          system: `You are TurfWatch AI for a barbershop at 1006 Kingston Rd, Birch Cliff, Toronto (M1N). Context: ${activeCompetitors.length} competitors within 1.5km, threat score ${threatScore}/100, 524 new condo units planned nearby. Analyze the owner's observation. Respond ONLY JSON: {"cat":"New Competitor|Demographic Shift|Service Gap|Foot Traffic|Pricing Signal|Partnership|Trend","threat":"high|medium|low|opportunity","insights":["1","2","3"],"rec":"one action","impact":<-5 to +5>}`,
-          messages: [{ role: "user", content: reportText }],
-        }),
+      const res = await fetch(`${API_BASE}/api/report`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: reportText, competitorCount: activeCompetitors.length, threatScore }),
       });
+      if (!res.ok) throw new Error(`Report failed: ${res.status}`);
       const d = await res.json();
-      const parsed = JSON.parse((d.content?.map(i => i.text || "").join("") || "{}").replace(/```json|```/g, "").trim());
+      const parsed = d.analysis;
       const nr = { id: Date.now(), date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), time: new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }), text: reportText, ai: parsed };
       setReportResult(nr);
       setReports(p => [nr, ...p]);
