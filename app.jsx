@@ -77,7 +77,7 @@ const MOCK_RATING_TRENDS = [
 // ─── API Layer — calls TurfWatch proxy (avoids CORS) ───
 
 // ═══ CHANGE THIS to your Railway URL after deploying ═══
-const API_BASE = "https://turfwatch-production.up.railway.app"; // e.g. https://turfwatch-api-production.up.railway.app
+const API_BASE = "https://YOUR-APP-NAME.up.railway.app"; // e.g. https://turfwatch-api-production.up.railway.app
 
 async function apiValidate(apiKey) {
   const res = await fetch(`${API_BASE}/api/validate`, {
@@ -350,6 +350,23 @@ function TurfWatch() {
   const [connectionStatus, setConnectionStatus] = useState(null); // null | "connecting" | "connected" | "error"
 
   const activeCompetitors = competitors.filter(c => c.isCompetitor);
+  const isLiveData = competitors !== MOCK_COMPETITORS && competitors.length > 0 && competitors[0]?.id?.startsWith("live_");
+  
+  // Computed: your shop's average rating from reviews
+  const shopAvgRating = ownReviews.length > 0
+    ? +(ownReviews.reduce((sum, r) => sum + r.rating, 0) / ownReviews.length).toFixed(1)
+    : 4.5;
+
+  // Computed: dynamic rating trends from live competitor data
+  const ratingTrendsData = (() => {
+    if (!isLiveData) return MOCK_RATING_TRENDS;
+    // Build a single "current" data point from live ratings
+    const current = { month: new Date().toLocaleString("en-US", { month: "short" }), you: shopAvgRating };
+    activeCompetitors.forEach(c => {
+      if (c.rating > 0) current[c.id] = c.rating;
+    });
+    return [current];
+  })();
 
   // ─── Scan for competitors ───
   const handleScan = useCallback(async () => {
@@ -557,6 +574,17 @@ function TurfWatch() {
         {/* ═══ DASHBOARD ═══ */}
         {tab === "dashboard" && (
           <div style={{ animation: "fadeUp 0.4s ease" }}>
+            {/* Data source indicator */}
+            <div style={{
+              padding: "6px 10px", borderRadius: 6, marginBottom: 12, fontSize: 10, display: "flex", alignItems: "center", gap: 6,
+              background: isLiveData ? C.greenDim : C.goldDim,
+              color: isLiveData ? C.green : C.gold,
+              border: `1px solid ${isLiveData ? C.green : C.gold}25`,
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: isLiveData ? C.green : C.gold, display: "inline-block" }} />
+              {isLiveData ? `Live data · ${activeCompetitors.length} competitors discovered · Last scan: ${lastScan || "just now"}` : "Demo data · Go to Map tab → Scan Area to load live competitors"}
+            </div>
+
             {/* Threat Gauge */}
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 14px 14px", marginBottom: 14, textAlign: "center" }}>
               <svg width="170" height="95" viewBox="0 0 170 95">
@@ -590,9 +618,51 @@ function TurfWatch() {
               ))}
             </div>
 
-            {/* Rating Trends */}
+            {/* Rating Trends / Live Ratings */}
             <div style={{ marginBottom: 14 }}>
-              <RatingChart data={MOCK_RATING_TRENDS} />
+              {isLiveData ? (
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }}>
+                  <div style={{ fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: 2, marginBottom: 12, fontWeight: 700 }}>Live Ratings · Google Reviews</div>
+                  {/* Your shop */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: C.goldDim, borderRadius: 8, marginBottom: 8, border: `1px solid ${C.gold}20` }}>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: C.goldBr }}>✂️ Your Shop</div>
+                      <div style={{ fontSize: 9, color: C.muted }}>{ownReviews.length} reviews analyzed</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <Stars rating={shopAvgRating} size={11} />
+                    </div>
+                  </div>
+                  {/* Competitor ratings */}
+                  {activeCompetitors.filter(c => c.rating > 0).sort((a, b) => b.rating - a.rating).map((c, i) => {
+                    const col = c.threat === "high" ? C.red : c.threat === "medium" ? C.orange : C.green;
+                    return (
+                      <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", borderBottom: `1px solid ${C.border}`, animation: `fadeUp 0.3s ease ${i * 40}ms both` }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ width: 6, height: 6, borderRadius: "50%", background: col, display: "inline-block" }} />
+                          <span style={{ fontSize: 11, fontWeight: 600, color: C.text }}>{c.name}</span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <Stars rating={c.rating} size={9} />
+                          <span style={{ fontSize: 9, color: C.dim }}>{c.reviews} rev</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {shopAvgRating >= Math.max(...activeCompetitors.map(c => c.rating || 0)) && (
+                    <div style={{ marginTop: 10, padding: "6px 10px", background: C.greenDim, borderRadius: 6, fontSize: 10, color: C.green }}>
+                      ✓ You have the highest rating on the corridor
+                    </div>
+                  )}
+                  {shopAvgRating < Math.max(...activeCompetitors.map(c => c.rating || 0)) && (
+                    <div style={{ marginTop: 10, padding: "6px 10px", background: C.orangeDim, borderRadius: 6, fontSize: 10, color: C.orange }}>
+                      ⚠ {activeCompetitors.filter(c => c.rating > shopAvgRating).length} competitor(s) rated higher than you — check Reviews tab for insights
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <RatingChart data={MOCK_RATING_TRENDS} />
+              )}
             </div>
 
             {/* Developments */}
@@ -662,7 +732,7 @@ function TurfWatch() {
             <div style={{ marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                 <div style={{ fontSize: 12, fontWeight: 700 }}>Your Shop</div>
-                <Stars rating={4.5} size={11} />
+                <Stars rating={shopAvgRating} size={11} />
                 <span style={{ fontSize: 9, color: C.muted }}>({ownReviews.length} recent)</span>
               </div>
 
@@ -884,7 +954,7 @@ function TurfWatch() {
               )}
               {connectionStatus === "error" && (
                 <div style={{ marginTop: 8, padding: "6px 10px", background: C.redDim, borderRadius: 6, fontSize: 10, color: C.red, border: `1px solid ${C.red}25` }}>
-                  Connection failed. Make sure the TurfWatch API proxy is running on localhost:3001 and your API key is valid.
+                  Connection failed. Check your API key and try again. If the problem persists, the backend server may be waking up — wait 10 seconds and retry.
                 </div>
               )}
             </div>
@@ -912,7 +982,7 @@ function TurfWatch() {
                 { icon: "⭐", t: "Review Intelligence", d: "Pulls latest Google reviews for your shop + all competitors. AI extracts sentiment, themes, service gaps, pricing signals, and client switching patterns." },
                 { icon: "📊", t: "Rating Trends", d: "Tracks star ratings over time across all monitored shops. Flags who's gaining or losing ground." },
                 { icon: "✏️", t: "Field Reports", d: "You type what you see on the ground. AI cross-references with all data to generate actionable intelligence." },
-                { icon: "🔧", t: "Backend Proxy", d: "Outscraper API calls route through a lightweight Express server (localhost:3001) to handle authentication and avoid browser CORS restrictions." },
+                { icon: "🔧", t: "Backend Proxy", d: "Outscraper API calls route through a secure Express server on Railway to handle authentication and avoid browser restrictions." },
               ].map((s, i) => (
                 <div key={i} style={{ display: "flex", gap: 10, marginBottom: 12 }}>
                   <span style={{ fontSize: 16 }}>{s.icon}</span>
