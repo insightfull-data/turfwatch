@@ -201,6 +201,147 @@ app.post("/api/reviews", rateLimit, async (req, res) => {
   }
 });
 
+// ─── Classify businesses as competitors (via Claude API) ───
+app.post("/api/classify", rateLimit, async (req, res) => {
+  const { businesses } = req.body;
+  if (!businesses || !Array.isArray(businesses)) {
+    return res.status(400).json({ error: "No businesses array provided" });
+  }
+
+  const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+
+  // If no Anthropic key, use keyword-based fallback
+  if (!ANTHROPIC_API_KEY) {
+    console.log("[CLASSIFY] No Anthropic key — using keyword classifier");
+    const competitorTypes = ["barber", "barbershop", "hair", "salon", "grooming", "fade", "cut", "shave", "stylist"];
+    const nonCompetitorTypes = ["nail", "spa", "wax", "lash", "brow", "tattoo", "piercing", "pet", "dog", "cat"];
+    const results = businesses.map(b => {
+      const text = ((b.name || "") + " " + (b.type || "") + " " + (b.subtypes?.join(" ") || "") + " " + (b.description || "")).toLowerCase();
+      const isNon = nonCompetitorTypes.some(t => text.includes(t));
+      const isComp = competitorTypes.some(t => text.includes(t));
+      if (isNon && !isComp) return { name: b.name, isCompetitor: false, reason: "Different service category", threat: "low" };
+      if (isComp) return { name: b.name, isCompetitor: true, reason: "Overlapping grooming/hair services", threat: "medium" };
+      return { name: b.name, isCompetitor: true, reason: "Potential competitor — review manually", threat: "medium" };
+    });
+    return res.json({ classifications: results });
+  }
+
+  try {
+    console.log(`[CLASSIFY] Classifying ${businesses.length} businesses via Claude`);
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1000,
+        system: `You classify businesses as competitors to a barbershop at 1006 Kingston Rd, Birch Cliff, Toronto. A competitor is any business whose services overlap enough to potentially take male grooming/haircut clients. This includes barbershops, men's salons, grooming lounges, and unisex salons with significant male clientele. It does NOT include women-only salons, nail bars, spas without hair services, etc. Respond ONLY with JSON array, no other text: [{"name":"...","isCompetitor":true/false,"reason":"brief explanation","threat":"high|medium|low"}]`,
+        messages: [{ role: "user", content: JSON.stringify(businesses.map(b => ({ name: b.name, types: b.type || b.subtypes, description: b.description || "" }))) }],
+      }),
+    });
+    const data = await response.json();
+    const raw = data.content?.map(i => i.text || "").join("") || "[]";
+    const classifications = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    console.log(`[CLASSIFY] Classified ${classifications.length} businesses`);
+    res.json({ classifications });
+  } catch (e) {
+    console.error("[CLASSIFY ERROR]", e.message);
+    // Fallback to keyword classifier
+    const competitorTypes = ["barber", "barbershop", "hair", "salon", "grooming", "fade", "cut", "shave", "stylist"];
+    const nonCompetitorTypes = ["nail", "spa", "wax", "lash", "brow", "tattoo", "piercing", "pet", "dog", "cat"];
+    const results = businesses.map(b => {
+      const text = ((b.name || "") + " " + (b.type || "") + " " + (b.subtypes?.join(" ") || "") + " " + (b.description || "")).toLowerCase();
+      const isNon = nonCompetitorTypes.some(t => text.includes(t));
+      const isComp = competitorTypes.some(t => text.includes(t));
+      if (isNon && !isComp) return { name: b.name, isCompetitor: false, reason: "Different service category", threat: "low" };
+      if (isComp) return { name: b.name, isCompetitor: true, reason: "Overlapping grooming/hair services", threat: "medium" };
+      return { name: b.name, isCompetitor: true, reason: "Potential competitor — review manually", threat: "medium" };
+    });
+    res.json({ classifications: results });
+  }
+});
+
+// ─── Analyze reviews (via Claude API) ───
+app.post("/api/analyze", rateLimit, async (req, res) => {
+  const { reviews, businessName, isOwn } = req.body;
+  if (!reviews || !Array.isArray(reviews)) {
+    return res.status(400).json({ error: "No reviews array provided" });
+  }
+
+  const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+  if (!ANTHROPIC_API_KEY) {
+    return res.status(400).json({ error: "No Anthropic API key configured. Add ANTHROPIC_API_KEY to environment variables." });
+  }
+
+  try {
+    console.log(`[ANALYZE] Analyzing ${reviews.length} reviews for ${businessName || "own shop"}`);
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1000,
+        system: isOwn
+          ? `Analyze these Google reviews for a barbershop at 1006 Kingston Rd, Toronto. This is the OWNER's shop. Identify: sentiment trend, recurring themes, service gaps clients mention, competitive threats (other shops mentioned), and specific actionable improvements. Respond ONLY with JSON: {"overallSentiment":"positive|mixed|negative","avgRating":0,"themes":[{"theme":"...","count":0,"sentiment":"positive|negative|neutral"}],"competitorMentions":["..."],"actionItems":["..."],"summary":"2 sentence summary"}`
+          : `Analyze these Google reviews for "${businessName}", a competitor to a barbershop at 1006 Kingston Rd, Toronto. Identify: what clients love (to learn from), what they hate (opportunities to exploit), pricing sentiment, and any signs of client switching. Respond ONLY with JSON: {"overallSentiment":"positive|mixed|negative","avgRating":0,"strengths":["..."],"weaknesses":["..."],"pricingSentiment":"...","switchingSignals":["..."],"exploitableGaps":["..."],"summary":"2 sentence summary"}`,
+        messages: [{ role: "user", content: JSON.stringify(reviews.slice(0, 15)) }],
+      }),
+    });
+    const data = await response.json();
+    const raw = data.content?.map(i => i.text || "").join("") || "{}";
+    const analysis = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    console.log(`[ANALYZE] Analysis complete for ${businessName || "own shop"}`);
+    res.json({ analysis });
+  } catch (e) {
+    console.error("[ANALYZE ERROR]", e.message);
+    res.status(500).json({ error: "Analysis failed", detail: e.message });
+  }
+});
+
+// ─── Analyze field report (via Claude API) ───
+app.post("/api/report", rateLimit, async (req, res) => {
+  const { text, competitorCount, threatScore } = req.body;
+  if (!text) return res.status(400).json({ error: "No report text provided" });
+
+  const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+  if (!ANTHROPIC_API_KEY) {
+    return res.status(400).json({ error: "No Anthropic API key configured." });
+  }
+
+  try {
+    console.log(`[REPORT] Analyzing field report: "${text.substring(0, 50)}..."`);
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1000,
+        system: `You are TurfWatch AI for a barbershop at 1006 Kingston Rd, Birch Cliff, Toronto (M1N). Context: ${competitorCount || 5} competitors within 1.5km, threat score ${threatScore || 72}/100, 524 new condo units planned nearby. Analyze the owner's observation. Respond ONLY JSON: {"cat":"New Competitor|Demographic Shift|Service Gap|Foot Traffic|Pricing Signal|Partnership|Trend","threat":"high|medium|low|opportunity","insights":["1","2","3"],"rec":"one action","impact":<-5 to +5>}`,
+        messages: [{ role: "user", content: text }],
+      }),
+    });
+    const data = await response.json();
+    const raw = data.content?.map(i => i.text || "").join("") || "{}";
+    const analysis = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    console.log(`[REPORT] Analysis complete`);
+    res.json({ analysis });
+  } catch (e) {
+    console.error("[REPORT ERROR]", e.message);
+    res.status(500).json({ error: "Report analysis failed", detail: e.message });
+  }
+});
+
 // ─── Start ───
 app.listen(PORT, () => {
   console.log(`
