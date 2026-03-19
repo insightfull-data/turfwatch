@@ -77,7 +77,7 @@ const MOCK_RATING_TRENDS = [
 // ─── API Layer — calls TurfWatch proxy (avoids CORS) ───
 
 // ═══ CHANGE THIS to your Railway URL after deploying ═══
-const API_BASE = "https://YOUR-APP-NAME.up.railway.app"; // e.g. https://turfwatch-api-production.up.railway.app
+const API_BASE = "https://turfwatch-production.up.railway.app";
 
 async function apiValidate(apiKey) {
   const res = await fetch(`${API_BASE}/api/validate`, {
