@@ -17,7 +17,159 @@ const C = {
   text: "#d8d8e6", muted: "#6e7088", dim: "#3f4158",
 };
 
-const SHOP = { name: "1006 Kingston Rd", biz: "Your Barbershop", lat: 43.6832, lng: -79.2648, area: "Birch Cliff · Upper Beaches", fsa: "M1N", searchQuery: "1006 Kingston Rd barbershop Toronto" };
+// ─── Default client config (overwritten by setup) ───
+const DEFAULT_CLIENT = { name: "", biz: "", address: "", lat: 0, lng: 0, radius: 1500, type: "barbershop", searchQuery: "" };
+
+const BUSINESS_TYPES = [
+  { value: "barbershop", label: "Barbershop" },
+  { value: "hair_salon", label: "Hair Salon" },
+  { value: "grooming", label: "Grooming / Spa" },
+  { value: "beauty_salon", label: "Beauty Salon" },
+  { value: "nail_salon", label: "Nail Salon" },
+  { value: "other", label: "Other" },
+];
+
+const RADIUS_OPTIONS = [
+  { value: 500, label: "0.5 km" },
+  { value: 1000, label: "1.0 km" },
+  { value: 1500, label: "1.5 km" },
+  { value: 2000, label: "2.0 km" },
+  { value: 3000, label: "3.0 km" },
+];
+
+// ─── Setup / Onboarding Screen ───
+function SetupScreen({ onComplete, apiKey }) {
+  const [name, setName] = useState("");
+  const [address, setAddress] = useState("");
+  const [type, setType] = useState("barbershop");
+  const [radius, setRadius] = useState(1500);
+  const [isGeocoding, setIsGeocoding] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSetup = async () => {
+    if (!name.trim() || !address.trim()) {
+      setError("Please enter both shop name and address.");
+      return;
+    }
+    setIsGeocoding(true);
+    setError("");
+
+    try {
+      // Geocode the address via backend
+      const res = await fetch(`${API_BASE}/api/geocode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: `${name} ${address}`, apiKey }),
+      });
+
+      let lat, lng, formattedAddress;
+
+      if (res.ok) {
+        const data = await res.json();
+        lat = data.lat;
+        lng = data.lng;
+        formattedAddress = data.formattedAddress || address;
+      } else {
+        // Fallback: try without shop name
+        const res2 = await fetch(`${API_BASE}/api/geocode`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address, apiKey }),
+        });
+        if (res2.ok) {
+          const data2 = await res2.json();
+          lat = data2.lat;
+          lng = data2.lng;
+          formattedAddress = data2.formattedAddress || address;
+        } else {
+          setError("Could not find that address. Please check and try again.");
+          setIsGeocoding(false);
+          return;
+        }
+      }
+
+      const client = {
+        name,
+        biz: name,
+        address: formattedAddress,
+        lat,
+        lng,
+        radius: parseInt(radius),
+        type,
+        searchQuery: `${name} ${address}`,
+      };
+
+      // Save to localStorage
+      localStorage.setItem("turfwatch_client", JSON.stringify(client));
+      onComplete(client);
+    } catch (e) {
+      console.error("Setup error:", e);
+      setError("Connection failed. Make sure the backend is running and try again.");
+    }
+    setIsGeocoding(false);
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div style={{ maxWidth: 420, width: "100%", animation: "fadeUp 0.5s ease" }}>
+        {/* Logo */}
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <div style={{ width: 56, height: 56, borderRadius: 14, background: `linear-gradient(135deg,${C.gold},${C.goldBr})`, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 28, boxShadow: `0 0 30px ${C.goldDim}`, marginBottom: 16 }}>📡</div>
+          <h1 style={{ fontSize: 28, fontWeight: 900, background: `linear-gradient(135deg,${C.goldBr},#f5e6b8)`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontFamily: "'DM Sans', sans-serif" }}>TurfWatch</h1>
+          <p style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>Neighborhood Intelligence Radar</p>
+          <p style={{ fontSize: 11, color: C.dim, marginTop: 4 }}>Set up your business to start tracking competitors</p>
+        </div>
+
+        {/* Form */}
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+          <div>
+            <label style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: 1.5, fontWeight: 700, display: "block", marginBottom: 6 }}>Business Name *</label>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Cut N Run Barbershop"
+              style={{ width: "100%", background: C.surface, border: `1px solid ${C.borderHi}`, borderRadius: 8, padding: "10px 14px", color: C.text, fontSize: 13, fontFamily: "'DM Sans', sans-serif" }} />
+          </div>
+
+          <div>
+            <label style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: 1.5, fontWeight: 700, display: "block", marginBottom: 6 }}>Address *</label>
+            <input value={address} onChange={e => setAddress(e.target.value)} placeholder="e.g. 1006 Kingston Rd, Toronto"
+              style={{ width: "100%", background: C.surface, border: `1px solid ${C.borderHi}`, borderRadius: 8, padding: "10px 14px", color: C.text, fontSize: 13, fontFamily: "'DM Sans', sans-serif" }} />
+          </div>
+
+          <div>
+            <label style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: 1.5, fontWeight: 700, display: "block", marginBottom: 6 }}>Business Type</label>
+            <select value={type} onChange={e => setType(e.target.value)}
+              style={{ width: "100%", background: C.surface, border: `1px solid ${C.borderHi}`, borderRadius: 8, padding: "10px 14px", color: C.text, fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>
+              {BUSINESS_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: 1.5, fontWeight: 700, display: "block", marginBottom: 6 }}>Scan Radius</label>
+            <select value={radius} onChange={e => setRadius(e.target.value)}
+              style={{ width: "100%", background: C.surface, border: `1px solid ${C.borderHi}`, borderRadius: 8, padding: "10px 14px", color: C.text, fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>
+              {RADIUS_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </div>
+
+          {error && (
+            <div style={{ padding: "8px 12px", background: C.redDim, borderRadius: 8, fontSize: 11, color: C.red, border: `1px solid ${C.red}25` }}>{error}</div>
+          )}
+
+          <button onClick={handleSetup} disabled={isGeocoding || !name.trim() || !address.trim()} style={{
+            width: "100%", padding: "12px 0", fontSize: 13, fontWeight: 700,
+            background: name.trim() && address.trim() && !isGeocoding ? `linear-gradient(135deg,${C.gold},${C.goldBr})` : C.dim,
+            color: name.trim() && address.trim() ? C.bg : C.muted,
+            border: "none", borderRadius: 8, cursor: name.trim() && address.trim() ? "pointer" : "default",
+            fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s",
+          }}>{isGeocoding ? "Finding your location..." : "Launch TurfWatch →"}</button>
+        </div>
+
+        <p style={{ fontSize: 9, color: C.dim, textAlign: "center", marginTop: 16 }}>
+          Your data is stored locally in your browser. No account needed.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 // ─── Mock Data ───
 
@@ -120,12 +272,12 @@ async function outscraperReviews(apiKey, query, limit = 10) {
   return data; // { business, reviews }
 }
 
-async function classifyCompetitors(businesses) {
+async function classifyCompetitors(businesses, client) {
   try {
     const res = await fetch(`${API_BASE}/api/classify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ businesses }),
+      body: JSON.stringify({ businesses, clientName: client?.name, clientAddress: client?.address, clientType: client?.type }),
     });
     if (!res.ok) throw new Error(`Classification failed: ${res.status}`);
     const data = await res.json();
@@ -136,12 +288,12 @@ async function classifyCompetitors(businesses) {
   }
 }
 
-async function analyzeReviews(reviews, businessName, isOwn) {
+async function analyzeReviews(reviews, businessName, isOwn, client) {
   try {
     const res = await fetch(`${API_BASE}/api/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reviews, businessName, isOwn }),
+      body: JSON.stringify({ reviews, businessName, isOwn, clientName: client?.name, clientAddress: client?.address }),
     });
     if (!res.ok) throw new Error(`Analysis failed: ${res.status}`);
     const data = await res.json();
@@ -312,11 +464,28 @@ const TABS = [
 // ─── Main App ───
 
 // Export for standalone rendering
-window.TurfWatchApp = TurfWatch;
+window.TurfWatchApp = function TurfWatchRoot() {
+  const [client, setClient] = useState(() => {
+    try {
+      const saved = localStorage.getItem("turfwatch_client");
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
+  const [apiKey, setApiKeyRoot] = useState(() => {
+    try { return localStorage.getItem("turfwatch_apikey") || ""; } catch { return ""; }
+  });
 
-function TurfWatch() {
+  if (!client) {
+    return React.createElement(SetupScreen, { onComplete: setClient, apiKey: apiKey });
+  }
+  return React.createElement(TurfWatchDashboard, { client, setClient, apiKeyInit: apiKey, setApiKeyRoot });
+};
+
+function TurfWatchDashboard({ client, setClient, apiKeyInit, setApiKeyRoot }) {
+  const SHOP = client;
   const [tab, setTab] = useState("dashboard");
-  const [apiKey, setApiKey] = useState("");
+  const [apiKey, setApiKey] = useState(apiKeyInit || "");
+  const saveApiKey = (key) => { setApiKey(key); try { localStorage.setItem("turfwatch_apikey", key); if (setApiKeyRoot) setApiKeyRoot(key); } catch {} };
   const [liveMode, setLiveMode] = useState(false);
   const [competitors, setCompetitors] = useState(MOCK_COMPETITORS);
   const [ownReviews, setOwnReviews] = useState(MOCK_OWN_REVIEWS);
@@ -363,9 +532,9 @@ function TurfWatch() {
     if (apiKey) {
       try {
         setScanStatus("Searching Google Maps for nearby businesses...");
-        const businesses = await outscraperSearch(apiKey, "barbershop OR barber OR salon OR grooming", SHOP.lat, SHOP.lng);
+        const businesses = await outscraperSearch(apiKey, "barbershop OR barber OR salon OR grooming", SHOP.lat, SHOP.lng, SHOP.radius || 1500);
         setScanStatus(`Found ${businesses.length} businesses. AI classifying competitors...`);
-        const classifications = await classifyCompetitors(businesses);
+        const classifications = await classifyCompetitors(businesses, SHOP);
         const merged = businesses.map((b, i) => {
           const cl = classifications.find(c => c.name === b.name) || {};
           return {
@@ -465,7 +634,7 @@ function TurfWatch() {
 
     // Step 3: AI analysis on whatever reviews we have (live or mock)
     const reviewsToAnalyzeOwn = liveOwnReviews || ownReviews;
-    const oa = await analyzeReviews(reviewsToAnalyzeOwn, SHOP.biz, true);
+    const oa = await analyzeReviews(reviewsToAnalyzeOwn, SHOP.biz || SHOP.name, true, SHOP);
     setOwnAnalysis(oa);
 
     // Analyze competitors (high-threat first, then medium)
@@ -474,7 +643,7 @@ function TurfWatch() {
       const revs = liveCompReviews[comp.id] || competitorReviews[comp.id] || [];
       if (revs.length > 0) {
         setScanStatus(`AI analyzing ${comp.name}...`);
-        const ca = await analyzeReviews(revs, comp.name, false);
+        const ca = await analyzeReviews(revs, comp.name, false, SHOP);
         setCompAnalyses(prev => ({ ...prev, [comp.id]: ca }));
       }
     }
@@ -492,7 +661,7 @@ function TurfWatch() {
       const res = await fetch(`${API_BASE}/api/report`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: reportText, competitorCount: activeCompetitors.length, threatScore }),
+        body: JSON.stringify({ text: reportText, competitorCount: activeCompetitors.length, threatScore, clientName: SHOP.name, clientAddress: SHOP.address }),
       });
       if (!res.ok) throw new Error(`Report failed: ${res.status}`);
       const d = await res.json();
@@ -530,7 +699,7 @@ function TurfWatch() {
             <div style={{ width: 28, height: 28, borderRadius: 7, background: `linear-gradient(135deg,${C.gold},${C.goldBr})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, boxShadow: `0 0 14px ${C.goldDim}` }}>📡</div>
             <div>
               <h1 style={{ fontSize: 17, fontWeight: 900, background: `linear-gradient(135deg,${C.goldBr},#f5e6b8)`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>TurfWatch</h1>
-              <p style={{ fontSize: 8, color: C.dim, letterSpacing: 2, textTransform: "uppercase" }}>{SHOP.name} · {SHOP.area}</p>
+              <p style={{ fontSize: 8, color: C.dim, letterSpacing: 2, textTransform: "uppercase" }}>{SHOP.name} · {SHOP.address}</p>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -612,7 +781,7 @@ function TurfWatch() {
                   {/* Your shop */}
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: C.goldDim, borderRadius: 8, marginBottom: 8, border: `1px solid ${C.gold}20` }}>
                     <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: C.goldBr }}>✂️ Your Shop</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: C.goldBr }}>✂️ {SHOP.name}</div>
                       <div style={{ fontSize: 9, color: C.muted }}>{ownReviews.length} reviews analyzed</div>
                     </div>
                     <div style={{ textAlign: "right" }}>
@@ -717,7 +886,7 @@ function TurfWatch() {
             {/* Your Reviews */}
             <div style={{ marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 700 }}>Your Shop</div>
+                <div style={{ fontSize: 12, fontWeight: 700 }}>{SHOP.name}</div>
                 <Stars rating={shopAvgRating} size={11} />
                 <span style={{ fontSize: 9, color: C.muted }}>({ownReviews.length} recent)</span>
               </div>
@@ -902,7 +1071,7 @@ function TurfWatch() {
               </p>
               <div style={{ display: "flex", gap: 6 }}>
                 <input
-                  type="password" value={apiKey} onChange={e => { setApiKey(e.target.value); setConnectionStatus(null); }}
+                  type="password" value={apiKey} onChange={e => { saveApiKey(e.target.value); setConnectionStatus(null); }}
                   placeholder="Paste your Outscraper API key"
                   style={{ flex: 1, background: C.surface, border: `1px solid ${C.borderHi}`, borderRadius: 6, padding: "8px 12px", color: C.text, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace" }}
                 />
@@ -961,14 +1130,33 @@ function TurfWatch() {
               </div>
             </div>
 
+            {/* Client Info */}
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16, marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 10 }}>Your Business</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                <div><div style={{ fontSize: 8, color: C.dim, textTransform: "uppercase", letterSpacing: 1 }}>Name</div><div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginTop: 2 }}>{SHOP.name}</div></div>
+                <div><div style={{ fontSize: 8, color: C.dim, textTransform: "uppercase", letterSpacing: 1 }}>Type</div><div style={{ fontSize: 12, color: C.text, marginTop: 2, textTransform: "capitalize" }}>{(SHOP.type || "barbershop").replace("_", " ")}</div></div>
+                <div><div style={{ fontSize: 8, color: C.dim, textTransform: "uppercase", letterSpacing: 1 }}>Address</div><div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{SHOP.address}</div></div>
+                <div><div style={{ fontSize: 8, color: C.dim, textTransform: "uppercase", letterSpacing: 1 }}>Scan Radius</div><div style={{ fontSize: 12, color: C.text, marginTop: 2 }}>{((SHOP.radius || 1500) / 1000).toFixed(1)} km</div></div>
+              </div>
+              <div style={{ display: "flex", gap: 6, fontSize: 10, color: C.dim }}>
+                <span>📍 {SHOP.lat?.toFixed(4)}, {SHOP.lng?.toFixed(4)}</span>
+              </div>
+              <button onClick={() => { localStorage.removeItem("turfwatch_client"); setClient(null); }} style={{
+                marginTop: 12, width: "100%", padding: "8px 0", fontSize: 10, fontWeight: 600,
+                background: "transparent", color: C.red, border: `1px solid ${C.red}30`,
+                borderRadius: 6, cursor: "pointer", fontFamily: "inherit",
+              }}>Reset Business Setup</button>
+            </div>
+
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 8 }}>How It Works</div>
               {[
-                { icon: "📍", t: "Auto-Discovery", d: "Outscraper searches Google Maps for all barbershops, salons, and grooming businesses within 1.5 km. Claude AI classifies each as competitor or non-competitor based on service overlap." },
-                { icon: "⭐", t: "Review Intelligence", d: "Pulls latest Google reviews for your shop + all competitors. AI extracts sentiment, themes, service gaps, pricing signals, and client switching patterns." },
-                { icon: "📊", t: "Rating Trends", d: "Tracks star ratings over time across all monitored shops. Flags who's gaining or losing ground." },
-                { icon: "✏️", t: "Field Reports", d: "You type what you see on the ground. AI cross-references with all data to generate actionable intelligence." },
-                { icon: "🔧", t: "Backend Proxy", d: "Outscraper API calls route through a secure Express server on Railway to handle authentication and avoid browser restrictions." },
+                { icon: "📍", t: "Auto-Discovery", d: `Outscraper searches Google Maps for competitors within ${((SHOP.radius || 1500) / 1000).toFixed(1)} km of your location. AI classifies each by service overlap.` },
+                { icon: "⭐", t: "Review Intelligence", d: "Pulls latest Google reviews for your shop + all competitors. AI extracts sentiment, themes, service gaps, and switching patterns." },
+                { icon: "📊", t: "Rating Trends", d: "Tracks star ratings across all monitored shops. Shows where you stand vs the competition." },
+                { icon: "✏️", t: "Field Reports", d: "Type what you see on the ground. AI cross-references with all data to generate actionable intelligence." },
+                { icon: "🔧", t: "Backend Proxy", d: "API calls route through a secure Express server on Railway for authentication and security." },
               ].map((s, i) => (
                 <div key={i} style={{ display: "flex", gap: 10, marginBottom: 12 }}>
                   <span style={{ fontSize: 16 }}>{s.icon}</span>
