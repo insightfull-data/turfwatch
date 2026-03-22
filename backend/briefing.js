@@ -1,7 +1,5 @@
 // ═══════════════════════════════════════════════════════════
 // TurfWatch SMS Briefing Engine
-// Runs weekly: pulls data, AI analyzes, sends SMS
-// ═══════════════════════════════════════════════════════════
 
 const fetch = require("node-fetch");
 
