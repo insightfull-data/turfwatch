@@ -18,6 +18,8 @@ app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
     if (allowedOrigins.some(ao => origin.startsWith(ao))) return callback(null, true);
+    // Allow requests from the Railway domain itself (admin pages)
+    if (origin.includes("railway.app")) return callback(null, true);
     callback(new Error("Not allowed by CORS"));
   }
 }));
