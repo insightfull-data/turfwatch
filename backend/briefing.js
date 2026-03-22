@@ -89,7 +89,7 @@ COMPETITORS FOUND (within ${(client.radius / 1000).toFixed(1)} km):
 ${competitors
   .map(
     (c) =>
-      `- ${c.name}: ${c.rating}★ (${c.reviews_count || c.totalReviews || 0} reviews) — ${c.subtypes?.join(", ") || c.type || "business"}`
+      `- ${c.name}: ${c.rating}★ (${c.reviews_count || c.totalReviews || 0} reviews) — ${Array.isArray(c.subtypes) ? c.subtypes.join(", ") : (c.subtypes || c.type || "business")}`
   )
   .join("\n")}
 
