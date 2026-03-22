@@ -386,6 +386,36 @@ app.post("/api/report", rateLimit, async (req, res) => {
 });
 
 // ─── Manual briefing trigger (protected by secret) ───
+// GET version — just visit this URL in your browser to trigger
+app.get("/api/briefing/send/:secret", async (req, res) => {
+  if (req.params.secret !== process.env.BRIEFING_SECRET && process.env.BRIEFING_SECRET) {
+    return res.status(403).send("<h2>Invalid secret</h2>");
+  }
+  res.setHeader("Content-Type", "text/html");
+  res.write("<html><body style='background:#0a0a0f;color:#e8e8ed;font-family:sans-serif;padding:40px;max-width:600px;margin:0 auto;'>");
+  res.write("<h2>📡 TurfWatch Briefing</h2><p>Running briefing... this takes 30-60 seconds.</p><hr style='border-color:#333'>");
+  res.flushHeaders && res.flushHeaders();
+  try {
+    const results = await runAllBriefings();
+    results.forEach(r => {
+      res.write(`<div style='margin:20px 0;padding:16px;background:#12121a;border-radius:8px;border:1px solid #1f1f2e;'>`);
+      res.write(`<h3 style='color:${r.success ? "#2fa85c" : "#d94040"}'>${r.success ? "✓" : "✗"} ${r.client}</h3>`);
+      if (r.briefing) {
+        res.write(`<pre style='white-space:pre-wrap;color:#ccc;font-size:14px;line-height:1.6;'>${r.briefing}</pre>`);
+      }
+      if (r.msgSid) res.write(`<p style='color:#888;font-size:12px;'>SMS sent: ${r.msgSid}</p>`);
+      if (r.note) res.write(`<p style='color:#d08530;font-size:12px;'>${r.note}</p>`);
+      if (r.error) res.write(`<p style='color:#d94040;font-size:12px;'>Error: ${r.error}</p>`);
+      res.write("</div>");
+    });
+    res.write("<p style='color:#2fa85c;'>✓ Briefing complete!</p>");
+  } catch (e) {
+    res.write(`<p style='color:#d94040;'>Error: ${e.message}</p>`);
+  }
+  res.end("</body></html>");
+});
+
+// POST version for programmatic access
 app.post("/api/briefing/send", async (req, res) => {
   const secret = req.body.secret || req.headers["x-briefing-secret"];
   if (secret !== process.env.BRIEFING_SECRET && process.env.BRIEFING_SECRET) {
