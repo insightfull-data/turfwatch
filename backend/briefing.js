@@ -1,7 +1,27 @@
 // ═══════════════════════════════════════════════════════════
-// TurfWatch SMS Briefing Engine
+// TurfWatch SMS Briefing Engine v3
+// Fully dynamic — no hardcoded businesses
+// ═══════════════════════════════════════════════════════════
 
 const fetch = require("node-fetch");
+const fs = require("fs");
+const path = require("path");
+
+// ─── Client Storage ───
+const CLIENTS_FILE = path.join(__dirname, "clients.json");
+
+function loadClients() {
+  try {
+    if (fs.existsSync(CLIENTS_FILE)) {
+      return JSON.parse(fs.readFileSync(CLIENTS_FILE, "utf8"));
+    }
+  } catch (e) { console.error("Failed to read clients.json:", e.message); }
+  return [];
+}
+
+function saveClients(clients) {
+  fs.writeFileSync(CLIENTS_FILE, JSON.stringify(clients, null, 2));
+}
 
 // ─── Configuration ───
 function getConfig() {
@@ -13,30 +33,13 @@ function getConfig() {
       token: process.env.TWILIO_AUTH_TOKEN,
       from: process.env.TWILIO_PHONE_NUMBER,
     },
-    // Client list — start with one, add more as you grow
-    clients: JSON.parse(process.env.CLIENTS_JSON || "[]"),
+    adminPhone: process.env.ADMIN_PHONE || "",
   };
 }
 
-// Default client if CLIENTS_JSON not set
-const DEFAULT_CLIENTS = [
-  {
-    name: "Cut N Run Barbershop",
-    address: "1006 Kingston Rd, Toronto",
-    phone: "", // SET THIS in CLIENTS_JSON env var
-    lat: 43.6832,
-    lng: -79.2648,
-    radius: 1500,
-    type: "barbershop",
-  },
-];
-
-// ─── Outscraper: Search for competitors ───
-async function searchCompetitors(apiKey, lat, lng, radius) {
-  const url = `https://api.app.outscraper.com/maps/search-v3?query=${encodeURIComponent(
-    "barbershop OR barber OR salon OR grooming"
-  )}&coordinates=${lat},${lng}&radius=${radius}&limit=15&async=false`;
-
+// ─── Outscraper: Search nearby businesses ───
+async function searchNearby(apiKey, query, lat, lng, radius) {
+  const url = `https://api.app.outscraper.com/maps/search-v3?query=${encodeURIComponent(query)}&coordinates=${lat},${lng}&radius=${radius}&limit=15&async=false`;
   const res = await fetch(url, { headers: { "X-API-KEY": apiKey } });
   if (!res.ok) throw new Error(`Outscraper search failed: ${res.status}`);
   const data = await res.json();
@@ -46,10 +49,7 @@ async function searchCompetitors(apiKey, lat, lng, radius) {
 
 // ─── Outscraper: Fetch reviews ───
 async function fetchReviews(apiKey, query, limit = 10) {
-  const url = `https://api.app.outscraper.com/maps/reviews-v3?query=${encodeURIComponent(
-    query
-  )}&reviewsLimit=${limit}&async=false`;
-
+  const url = `https://api.app.outscraper.com/maps/reviews-v3?query=${encodeURIComponent(query)}&reviewsLimit=${limit}&async=false`;
   const res = await fetch(url, { headers: { "X-API-KEY": apiKey } });
   if (!res.ok) throw new Error(`Outscraper reviews failed: ${res.status}`);
   const data = await res.json();
@@ -73,46 +73,60 @@ async function fetchReviews(apiKey, query, limit = 10) {
   };
 }
 
+// ─── Build search query based on business category ───
+function getSearchQuery(category) {
+  const queries = {
+    barbershop: "barbershop OR barber OR men's grooming",
+    hair_salon: "hair salon OR hairdresser OR stylist",
+    grooming: "grooming OR spa OR men's grooming",
+    beauty_salon: "beauty salon OR aesthetics OR skincare",
+    nail_salon: "nail salon OR manicure OR pedicure",
+    restaurant: "restaurant OR dining OR eatery",
+    cafe: "cafe OR coffee shop OR bakery",
+    gym: "gym OR fitness OR crossfit OR personal training",
+    dentist: "dentist OR dental clinic OR dental office",
+    auto_repair: "auto repair OR mechanic OR car service",
+    other: "business",
+  };
+  return queries[category] || queries.other;
+}
+
+// ─── Safe subtypes helper ───
+function getSubtypes(c) {
+  if (Array.isArray(c.subtypes)) return c.subtypes.join(", ");
+  if (typeof c.subtypes === "string") return c.subtypes;
+  return c.type || "business";
+}
+
 // ─── Claude: Generate the briefing ───
 async function generateBriefing(anthropicKey, client, ownData, competitors) {
+  const categoryLabel = (client.category || "business").replace(/_/g, " ");
+  
   const prompt = `You are TurfWatch, a competitive intelligence system for ${client.name} at ${client.address}.
+This is a ${categoryLabel}.
 
 Here is this week's data:
 
-YOUR SHOP:
-- Rating: ${ownData.rating}★ (${ownData.totalReviews} total reviews)
+YOUR BUSINESS:
+- Rating: ${ownData.rating} stars (${ownData.totalReviews} total reviews)
 - Recent reviews: ${JSON.stringify(ownData.reviews.slice(0, 5))}
 
-COMPETITORS FOUND (within ${(client.radius / 1000).toFixed(1)} km):
-${competitors
-  .map(
-    (c) =>
-      `- ${c.name}: ${c.rating}★ (${c.reviews_count || c.totalReviews || 0} reviews) — ${Array.isArray(c.subtypes) ? c.subtypes.join(", ") : (c.subtypes || c.type || "business")}`
-  )
-  .join("\n")}
+NEARBY COMPETITORS (within ${((client.radius || 1500) / 1000).toFixed(1)} km):
+${competitors.map((c) => `- ${c.name}: ${c.rating} stars (${c.reviews_count || c.totalReviews || 0} reviews) — ${getSubtypes(c)}`).join("\n")}
 
-TOP COMPETITOR REVIEWS THIS WEEK:
-${competitors
-  .slice(0, 3)
-  .map(
-    (c) =>
-      `${c.name}: ${(c.recentReviews || [])
-        .slice(0, 2)
-        .map((r) => `"${r.text?.substring(0, 80)}..." (${r.rating}★)`)
-        .join("; ")}`
-  )
-  .join("\n")}
+TOP COMPETITOR REVIEWS:
+${competitors.slice(0, 3).map((c) => `${c.name}: ${(c.recentReviews || []).slice(0, 2).map((r) => '"' + (r.text || "").substring(0, 80) + '..." (' + r.rating + ' stars)').join("; ")}`).join("\n")}
 
-Generate a weekly SMS briefing. STRICT RULES:
+Generate a weekly SMS briefing for the ${categoryLabel} owner. STRICT RULES:
 - Maximum 450 characters total (SMS limit)
 - Use these EXACT sections in this EXACT order:
-  ➜ DO THIS (one specific action he can do Monday in under 30 minutes — be concrete, not vague)
-  💡 WHY (the data point or competitive shift that makes this urgent)
-  ⚡ YOU vs THEM (your rating vs the most relevant competitor's rating — one line)
-  📈 MOMENTUM: (one word: Rising / Holding / Slipping — plus a short reason)
-- ACTION FIRST. The barber is an operator, not an analyst. Lead with what to do.
+  -> DO THIS (one specific action for Monday, under 30 minutes, concrete not vague)
+  -> WHY (the data point or competitive shift that makes this urgent)
+  -> YOU vs THEM (your rating vs most relevant competitor — one line)
+  -> MOMENTUM: (Rising / Holding / Slipping — plus short reason)
+- ACTION FIRST. Lead with what to do.
 - Be specific — use actual competitor names, actual review quotes, actual numbers
-- No fluff, no pleasantries, no "consider" or "think about" — direct commands
+- No fluff, no pleasantries — direct commands only
 
 Respond ONLY with the SMS text, nothing else.`;
 
@@ -131,8 +145,8 @@ Respond ONLY with the SMS text, nothing else.`;
   });
 
   const data = await res.json();
-  const text = data.content?.map((i) => i.text || "").join("") || "";
-  return `📡 TurfWatch — ${client.name}\n\n${text.trim()}`;
+  const text = (data.content || []).map((i) => i.text || "").join("") || "Briefing generation failed.";
+  return `TurfWatch — ${client.name}\n\n${text.trim()}`;
 }
 
 // ─── Twilio: Send SMS ───
@@ -159,88 +173,104 @@ async function sendSMS(twilioConfig, to, body) {
     throw new Error(`Twilio error: ${res.status} — ${err.message || JSON.stringify(err)}`);
   }
 
-  const result = await res.json();
-  return result.sid;
+  return (await res.json()).sid;
 }
 
-// ─── Main: Run briefing for one client ───
+// ─── Run briefing for one client ───
 async function runBriefing(client, config) {
   console.log(`\n[BRIEFING] Starting for ${client.name}...`);
 
-  // Step 1: Search for competitors
-  console.log("[BRIEFING] Scanning competitors...");
-  const rawCompetitors = await searchCompetitors(
-    config.outscraper,
-    client.lat,
-    client.lng,
-    client.radius
-  );
+  // Step 1: Search for nearby competitors based on category
+  const searchQuery = getSearchQuery(client.category);
+  console.log(`[BRIEFING] Scanning nearby: "${searchQuery}" within ${client.radius || 1500}m`);
+  const rawCompetitors = await searchNearby(config.outscraper, searchQuery, client.lat, client.lng, client.radius || 1500);
   console.log(`[BRIEFING] Found ${rawCompetitors.length} businesses nearby`);
 
   // Step 2: Fetch own reviews
   console.log("[BRIEFING] Fetching your reviews...");
-  const ownData = await fetchReviews(
-    config.outscraper,
-    `${client.name} ${client.address}`,
-    10
-  );
+  const ownData = await fetchReviews(config.outscraper, `${client.name} ${client.address}`, 10);
   console.log(`[BRIEFING] Got ${ownData.reviews.length} reviews for ${client.name}`);
 
-  // Step 3: Fetch top competitor reviews
+  // Step 3: Filter out own business, get top competitors
   const topCompetitors = rawCompetitors
-    .filter((c) => c.name && c.name !== client.name)
+    .filter((c) => c.name && c.name.toLowerCase() !== client.name.toLowerCase())
     .sort((a, b) => (b.rating || 0) - (a.rating || 0))
     .slice(0, 5);
 
+  // Step 4: Fetch top competitor reviews
   for (const comp of topCompetitors.slice(0, 3)) {
     try {
       console.log(`[BRIEFING] Fetching reviews for ${comp.name}...`);
-      const compData = await fetchReviews(
-        config.outscraper,
-        comp.place_id || comp.name + " " + (comp.full_address || "Toronto"),
-        5
-      );
+      const compData = await fetchReviews(config.outscraper, comp.place_id || comp.name + " " + (comp.full_address || "Toronto"), 5);
       comp.recentReviews = compData.reviews;
       comp.totalReviews = compData.totalReviews;
     } catch (e) {
-      console.error(`[BRIEFING] Failed to fetch reviews for ${comp.name}:`, e.message);
+      console.error(`[BRIEFING] Review fetch failed for ${comp.name}:`, e.message);
       comp.recentReviews = [];
     }
   }
 
-  // Step 4: Generate AI briefing
+  // Step 5: Generate AI briefing
   console.log("[BRIEFING] Generating AI briefing...");
-  const briefingText = await generateBriefing(
-    config.anthropic,
-    client,
-    ownData,
-    topCompetitors
-  );
-  console.log(`[BRIEFING] Generated (${briefingText.length} chars):`);
-  console.log(briefingText);
+  const briefingText = await generateBriefing(config.anthropic, client, ownData, topCompetitors);
+  console.log(`[BRIEFING] Generated (${briefingText.length} chars)`);
 
-  // Step 5: Send SMS
-  if (client.phone) {
-    console.log(`[BRIEFING] Sending SMS to ${client.phone}...`);
-    const msgSid = await sendSMS(config.twilio, client.phone, briefingText);
-    console.log(`[BRIEFING] ✓ SMS sent! SID: ${msgSid}`);
-    return { success: true, msgSid, briefing: briefingText };
-  } else {
-    console.log("[BRIEFING] ⚠ No phone number — SMS not sent. Briefing generated only.");
-    return { success: true, msgSid: null, briefing: briefingText, note: "No phone number configured" };
+  // Step 6: Send SMS
+  const smsSent = [];
+  
+  // Check if SMS is enabled and start date has passed
+  const smsActive = client.smsEnabled === "on";
+  const startDatePassed = !client.smsStartDate || new Date(client.smsStartDate) <= new Date();
+  const shouldSendOwner = smsActive && startDatePassed && client.ownerPhone;
+
+  // Send to business owner (only if SMS enabled + start date passed)
+  if (shouldSendOwner) {
+    try {
+      console.log(`[BRIEFING] SMS to owner (${client.ownerName || "Owner"}): ${client.ownerPhone}`);
+      const sid = await sendSMS(config.twilio, client.ownerPhone, briefingText);
+      console.log(`[BRIEFING] Owner SMS sent: ${sid}`);
+      smsSent.push({ to: client.ownerName || "Owner", phone: client.ownerPhone, sid });
+    } catch (e) {
+      console.error(`[BRIEFING] Owner SMS failed:`, e.message);
+      smsSent.push({ to: client.ownerName || "Owner", phone: client.ownerPhone, error: e.message });
+    }
+  } else if (client.ownerPhone) {
+    const reason = !smsActive ? "SMS disabled" : !startDatePassed ? `Starts ${client.smsStartDate}` : "No phone";
+    console.log(`[BRIEFING] Owner SMS skipped: ${reason}`);
+    smsSent.push({ to: client.ownerName || "Owner", phone: client.ownerPhone, skipped: reason });
   }
+
+  // Send admin copy
+  if (config.adminPhone) {
+    try {
+      console.log(`[BRIEFING] SMS to admin: ${config.adminPhone}`);
+      const sid = await sendSMS(config.twilio, config.adminPhone, `[ADMIN] ${briefingText}`);
+      console.log(`[BRIEFING] Admin SMS sent: ${sid}`);
+      smsSent.push({ to: "Admin", phone: config.adminPhone, sid });
+    } catch (e) {
+      console.error(`[BRIEFING] Admin SMS failed:`, e.message);
+      smsSent.push({ to: "Admin", phone: config.adminPhone, error: e.message });
+    }
+  }
+
+  return { success: true, smsSent, briefing: briefingText, competitorsFound: topCompetitors.length, ownRating: ownData.rating, ownReviewCount: ownData.reviews.length };
 }
 
 // ─── Run all clients ───
 async function runAllBriefings() {
   const config = getConfig();
-  const clients = config.clients.length > 0 ? config.clients : DEFAULT_CLIENTS;
-  const results = [];
+  const clients = loadClients();
+  
+  if (clients.length === 0) {
+    console.log("[BRIEFING] No clients configured.");
+    return [{ client: "None", success: false, error: "No clients configured. Add one in the admin page." }];
+  }
 
-  console.log(`\n${"═".repeat(50)}`);
-  console.log(`TurfWatch Weekly Briefing — ${new Date().toLocaleDateString()}`);
-  console.log(`Running for ${clients.length} client(s)`);
-  console.log(`${"═".repeat(50)}`);
+  const results = [];
+  console.log(`\n${"=".repeat(50)}`);
+  console.log(`TurfWatch Briefing — ${new Date().toLocaleString()}`);
+  console.log(`Clients: ${clients.length} | Admin: ${config.adminPhone || "not set"}`);
+  console.log(`${"=".repeat(50)}`);
 
   for (const client of clients) {
     try {
@@ -252,14 +282,24 @@ async function runAllBriefings() {
     }
   }
 
-  console.log(`\n${"═".repeat(50)}`);
-  console.log("Briefing complete.");
-  results.forEach((r) => {
-    console.log(`  ${r.success ? "✓" : "✗"} ${r.client} ${r.msgSid ? `(SMS: ${r.msgSid})` : r.note || r.error || ""}`);
-  });
-  console.log(`${"═".repeat(50)}\n`);
+  console.log(`\n${"=".repeat(50)}`);
+  console.log("Complete.");
+  results.forEach((r) => console.log(`  ${r.success ? "OK" : "FAIL"} ${r.client} ${r.error || ""}`));
+  console.log(`${"=".repeat(50)}\n`);
 
   return results;
 }
 
-module.exports = { runAllBriefings, runBriefing };
+// ─── Send test SMS to admin only ───
+async function sendAdminTest() {
+  const config = getConfig();
+  if (!config.adminPhone) throw new Error("ADMIN_PHONE not set in environment variables");
+  if (!config.twilio.sid) throw new Error("TWILIO_ACCOUNT_SID not set");
+  
+  const testMsg = `TurfWatch System Test\n\nSMS delivery is working.\nTime: ${new Date().toLocaleString()}\nClients configured: ${loadClients().length}\nOutscraper: ${config.outscraper ? "OK" : "MISSING"}\nAnthropic: ${config.anthropic ? "OK" : "MISSING"}`;
+  
+  const sid = await sendSMS(config.twilio, config.adminPhone, testMsg);
+  return { success: true, sid, phone: config.adminPhone, message: testMsg };
+}
+
+module.exports = { runAllBriefings, runBriefing, loadClients, saveClients, sendAdminTest };
