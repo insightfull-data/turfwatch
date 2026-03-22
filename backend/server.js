@@ -271,64 +271,86 @@ app.get("/admin/:secret", (req, res) => {
 // ─── Admin: Add client (auto-geocodes address) ───
 app.post("/admin/:secret/add", async (req, res) => {
   if (!auth(req, res)) return;
-  const { name, address, category, radius, ownerName, ownerPhone, smsEnabled, smsStartDate } = req.body;
-  if (!name || !address) return res.status(400).send("Business name and address are required. <a href='/admin/" + SECRET + "'>Go back</a>");
-  
-  // Auto-geocode the address using Outscraper
-  let lat = 0, lng = 0, formattedAddress = address;
   try {
-    const searchQuery = `${name.trim()} ${address.trim()}`;
-    const url = `https://api.app.outscraper.com/maps/search-v3?query=${encodeURIComponent(searchQuery)}&limit=1&async=false`;
-    const r = await fetch(url, { headers: { "X-API-KEY": API_KEY } });
-    if (r.ok) {
-      const data = await r.json();
-      const raw = data.data || [];
-      const flat = Array.isArray(raw[0]) ? raw[0] : raw;
-      if (flat.length > 0) {
-        lat = flat[0].latitude || 0;
-        lng = flat[0].longitude || 0;
-        formattedAddress = flat[0].full_address || flat[0].address || address;
-        console.log(`[ADMIN] Geocoded "${name}" → ${lat}, ${lng}`);
-      }
+    const { name, address, category, radius, ownerName, ownerPhone, smsEnabled, smsStartDate } = req.body;
+    if (!name || !address) return res.status(400).send(`Business name and address are required. <br><br><a href="/admin/${SECRET}">Go back</a>`);
+    
+    // Auto-geocode the address using Outscraper
+    let lat = 0, lng = 0, formattedAddress = address;
+    console.log(`[ADMIN] Adding client: "${name}" at "${address}"`);
+    
+    if (!API_KEY) {
+      return res.status(500).send(`Outscraper API key not configured. Add OUTSCRAPER_API_KEY to Railway variables. <br><br><a href="/admin/${SECRET}">Go back</a>`);
     }
-    // Fallback: try just the address without business name
-    if (lat === 0 && lng === 0) {
-      const url2 = `https://api.app.outscraper.com/maps/search-v3?query=${encodeURIComponent(address.trim())}&limit=1&async=false`;
-      const r2 = await fetch(url2, { headers: { "X-API-KEY": API_KEY } });
-      if (r2.ok) {
-        const data2 = await r2.json();
-        const raw2 = data2.data || [];
-        const flat2 = Array.isArray(raw2[0]) ? raw2[0] : raw2;
-        if (flat2.length > 0) {
-          lat = flat2[0].latitude || 0;
-          lng = flat2[0].longitude || 0;
-          formattedAddress = flat2[0].full_address || flat2[0].address || address;
-          console.log(`[ADMIN] Geocoded address fallback → ${lat}, ${lng}`);
+
+    try {
+      const searchQuery = `${name.trim()} ${address.trim()}`;
+      console.log(`[ADMIN] Geocoding: "${searchQuery}"`);
+      const url = `https://api.app.outscraper.com/maps/search-v3?query=${encodeURIComponent(searchQuery)}&limit=1&async=false`;
+      const r = await fetch(url, { headers: { "X-API-KEY": API_KEY } });
+      console.log(`[ADMIN] Geocode response: ${r.status}`);
+      if (r.ok) {
+        const data = await r.json();
+        const raw = data.data || [];
+        const flat = Array.isArray(raw[0]) ? raw[0] : raw;
+        if (flat.length > 0) {
+          lat = flat[0].latitude || 0;
+          lng = flat[0].longitude || 0;
+          formattedAddress = flat[0].full_address || flat[0].address || address;
+          console.log(`[ADMIN] Found: ${lat}, ${lng} — ${formattedAddress}`);
         }
       }
+    } catch (geoErr) {
+      console.error(`[ADMIN] Geocoding error:`, geoErr.message);
     }
-  } catch (e) { console.error("[ADMIN] Geocoding failed:", e.message); }
 
-  if (lat === 0 && lng === 0) {
-    return res.status(400).send(`Could not find coordinates for "${name}" at "${address}". Please check the address and try again. <br><br><a href="/admin/${SECRET}">Go back</a>`);
+    // Fallback: try just the address
+    if (lat === 0 && lng === 0) {
+      try {
+        console.log(`[ADMIN] Trying address-only geocode: "${address}"`);
+        const url2 = `https://api.app.outscraper.com/maps/search-v3?query=${encodeURIComponent(address.trim())}&limit=1&async=false`;
+        const r2 = await fetch(url2, { headers: { "X-API-KEY": API_KEY } });
+        if (r2.ok) {
+          const data2 = await r2.json();
+          const raw2 = data2.data || [];
+          const flat2 = Array.isArray(raw2[0]) ? raw2[0] : raw2;
+          if (flat2.length > 0) {
+            lat = flat2[0].latitude || 0;
+            lng = flat2[0].longitude || 0;
+            formattedAddress = flat2[0].full_address || flat2[0].address || address;
+            console.log(`[ADMIN] Fallback found: ${lat}, ${lng}`);
+          }
+        }
+      } catch (e2) {
+        console.error(`[ADMIN] Fallback geocode error:`, e2.message);
+      }
+    }
+
+    if (lat === 0 && lng === 0) {
+      return res.status(400).send(`Could not find coordinates for "${name}" at "${address}". Please check the address and try again. <br><br><a href="/admin/${SECRET}">Go back</a>`);
+    }
+
+    const clients = loadClients();
+    clients.push({
+      name: name.trim(),
+      address: formattedAddress,
+      category: category || "other",
+      radius: parseInt(radius) || 1500,
+      lat,
+      lng,
+      ownerName: (ownerName || "").trim(),
+      ownerPhone: (ownerPhone || "").trim(),
+      smsEnabled: smsEnabled || "off",
+      smsStartDate: smsStartDate || "",
+      addedAt: new Date().toISOString(),
+    });
+    saveClients(clients);
+    console.log(`[ADMIN] Client added: ${name.trim()} (${lat}, ${lng})`);
+    res.redirect(`/admin/${SECRET}`);
+  } catch (e) {
+    console.error(`[ADMIN] Add client error:`, e.message);
+    res.status(500).send(`Error adding client: ${e.message} <br><br><a href="/admin/${SECRET}">Go back</a>`);
   }
-
-  const clients = loadClients();
-  clients.push({
-    name: name.trim(),
-    address: formattedAddress,
-    category: category || "other",
-    radius: parseInt(radius) || 1500,
-    lat,
-    lng,
-    ownerName: (ownerName || "").trim(),
-    ownerPhone: (ownerPhone || "").trim(),
-    smsEnabled: smsEnabled || "off",
-    smsStartDate: smsStartDate || "",
-    addedAt: new Date().toISOString(),
-  });
-  saveClients(clients);
-  res.redirect(`/admin/${SECRET}`);
 });
 
 // ─── Admin: Delete client ───
