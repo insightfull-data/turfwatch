@@ -1,11 +1,13 @@
 {
   "name": "turfwatch-api",
-  "version": "1.0.0",
-  "description": "TurfWatch backend proxy for Outscraper Google Reviews API",
+  "version": "2.0.0",
+  "description": "TurfWatch backend — API proxy + weekly SMS briefing engine",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "briefing:preview": "node -e \"require('./briefing').runAllBriefings()\"",
+    "briefing:send": "node -e \"require('./briefing').runAllBriefings()\""
   },
   "dependencies": {
     "cors": "^2.8.5",
