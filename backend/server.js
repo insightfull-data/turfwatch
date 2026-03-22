@@ -2,6 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const fetch = require("node-fetch");
+const { runAllBriefings } = require("./briefing");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -384,13 +385,78 @@ app.post("/api/report", rateLimit, async (req, res) => {
   }
 });
 
+// ─── Manual briefing trigger (protected by secret) ───
+app.post("/api/briefing/send", async (req, res) => {
+  const secret = req.body.secret || req.headers["x-briefing-secret"];
+  if (secret !== process.env.BRIEFING_SECRET && process.env.BRIEFING_SECRET) {
+    return res.status(403).json({ error: "Invalid secret" });
+  }
+  try {
+    console.log("[BRIEFING] Manual trigger received");
+    const results = await runAllBriefings();
+    res.json({ success: true, results });
+  } catch (e) {
+    console.error("[BRIEFING ERROR]", e.message);
+    res.status(500).json({ error: "Briefing failed", detail: e.message });
+  }
+});
+
+// ─── Preview briefing without sending SMS ───
+app.post("/api/briefing/preview", async (req, res) => {
+  const secret = req.body.secret || req.headers["x-briefing-secret"];
+  if (secret !== process.env.BRIEFING_SECRET && process.env.BRIEFING_SECRET) {
+    return res.status(403).json({ error: "Invalid secret" });
+  }
+  try {
+    // Temporarily remove phone numbers so SMS won't send
+    const originalEnv = process.env.CLIENTS_JSON;
+    const clients = JSON.parse(process.env.CLIENTS_JSON || "[]");
+    const previewClients = clients.map(c => ({ ...c, phone: "" }));
+    process.env.CLIENTS_JSON = JSON.stringify(previewClients);
+    const results = await runAllBriefings();
+    process.env.CLIENTS_JSON = originalEnv || "";
+    res.json({ success: true, preview: true, results });
+  } catch (e) {
+    console.error("[BRIEFING PREVIEW ERROR]", e.message);
+    res.status(500).json({ error: "Preview failed", detail: e.message });
+  }
+});
+
+// ─── Cron: Sunday 8 PM ET ───
+// Simple interval-based scheduler (checks every hour)
+function startBriefingScheduler() {
+  const BRIEFING_HOUR = parseInt(process.env.BRIEFING_HOUR || "20"); // 8 PM
+  const BRIEFING_DAY = parseInt(process.env.BRIEFING_DAY || "0"); // 0 = Sunday
+  const TZ_OFFSET = parseInt(process.env.TZ_OFFSET || "-4"); // EDT = -4
+
+  console.log(`  Briefing scheduled: ${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][BRIEFING_DAY]} ${BRIEFING_HOUR}:00 (UTC${TZ_OFFSET >= 0 ? "+" : ""}${TZ_OFFSET})`);
+
+  let lastRun = null;
+
+  setInterval(() => {
+    const now = new Date();
+    const localHour = (now.getUTCHours() + TZ_OFFSET + 24) % 24;
+    const localDay = now.getUTCDay();
+    const today = now.toDateString();
+
+    if (localDay === BRIEFING_DAY && localHour === BRIEFING_HOUR && lastRun !== today) {
+      lastRun = today;
+      console.log(`[CRON] Triggering weekly briefing — ${now.toISOString()}`);
+      runAllBriefings().catch(e => console.error("[CRON ERROR]", e.message));
+    }
+  }, 60 * 60 * 1000); // Check every hour
+}
+
 // ─── Start ───
 app.listen(PORT, () => {
   console.log(`
   ╔══════════════════════════════════════════╗
-  ║  TurfWatch API Proxy                     ║
+  ║  TurfWatch API + Briefing Engine         ║
   ║  Running on http://localhost:${PORT}        ║
-  ║  API Key: ${API_KEY ? "✓ Configured" : "✗ Missing — set OUTSCRAPER_API_KEY in .env"}       ║
+  ║  Outscraper: ${API_KEY ? "✓ Configured" : "✗ Missing"}                    ║
+  ║  Anthropic:  ${process.env.ANTHROPIC_API_KEY ? "✓ Configured" : "✗ Missing"}                    ║
+  ║  Twilio:     ${process.env.TWILIO_ACCOUNT_SID ? "✓ Configured" : "✗ Missing"}                    ║
   ╚══════════════════════════════════════════╝
   `);
+  startBriefingScheduler();
 });
